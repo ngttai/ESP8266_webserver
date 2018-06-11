@@ -1,0 +1,6 @@
+export ESPRESSIF_HOME=/opt/Espressif
+export ESP_SDK_HOME=$ESPRESSIF_HOME/esp-rtos-sdk
+#export PATH=/opt/Espressif/crosstool-NG/builds/xtensa-lx106-elf/bin:$PATH
+
+export SDK_PATH=$ESP_SDK_HOME
+export BIN_PATH=$SDK_PATH/bin
