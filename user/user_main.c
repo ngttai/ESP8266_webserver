@@ -26,6 +26,12 @@
 #include "user_config.h"
 #include <lwip/api.h>
 #include <gpio.h>
+#include <string.h>
+#include <stdio.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <esp_sta.h>
+#include "httpd.h"
 
 static os_timer_t timer;
 
@@ -100,80 +106,173 @@ LOCAL void ICACHE_FLASH_ATTR on_wifi_disconnect(uint8_t reason){
     os_printf("disconnect %d\n", reason);
 }
 
-void httpd_task(void *pvParameters)
+#define LED_PIN 2
+
+enum {
+    SSI_UPTIME,
+    SSI_FREE_HEAP,
+    SSI_LED_STATE
+};
+
+int32_t ssi_handler(int32_t iIndex, char *pcInsert, int32_t iInsertLen)
 {
-    struct netconn *client = NULL;
-    struct netconn *nc = netconn_new(NETCONN_TCP);
-    if (nc == NULL) {
-        printf("Failed to allocate socket.\n");
-        vTaskDelete(NULL);
+    switch (iIndex) {
+        case SSI_UPTIME:
+            snprintf(pcInsert, iInsertLen, "%d",
+                    xTaskGetTickCount() * portTICK_RATE_MS / 1000);
+            break;
+        case SSI_FREE_HEAP:
+            snprintf(pcInsert, iInsertLen, "%d", (int) xPortGetFreeHeapSize());
+            break;
+        case SSI_LED_STATE:
+            snprintf(pcInsert, iInsertLen, (GPIO_INPUT_GET(LED_PIN)) ? "Off" : "On");
+            break;
+        default:
+            snprintf(pcInsert, iInsertLen, "N/A");
+            break;
     }
-    netconn_bind(nc, IP_ADDR_ANY, 80);
-    netconn_listen(nc);
-    char buf[512];
-    const char *webpage = {
-        "HTTP/1.1 200 OK\r\n"
-        "Content-type: text/html\r\n\r\n"
-        "<html><head><title>HTTP Server</title>"
-        "<style> div.main {"
-        "font-family: Arial;"
-        "padding: 0.01em 16px;"
-        "box-shadow: 2px 2px 1px 1px #d2d2d2;"
-        "background-color: #f1f1f1;}"
-        "</style></head>"
-        "<body><div class='main'>"
-        "<h3>HTTP Server</h3>"
-        "<p>URL: %s</p>"
-        "<p>Uptime: %d seconds</p>"
-        "<p>Free heap: %d bytes</p>"
-        "<button onclick=\"location.href='/on'\" type='button'>"
-        "LED On</button></p>"
-        "<button onclick=\"location.href='/off'\" type='button'>"
-        "LED Off</button></p>"
-        "</div></body></html>"
-    };
-    /* disable LED */
-    GPIO_AS_OUTPUT(15);
-    GPIO_OUTPUT(15, true);
-    while (1) {
-        err_t err = netconn_accept(nc, &client);
-        if (err == ERR_OK) {
-            struct netbuf *nb;
-            if ((err = netconn_recv(client, &nb)) == ERR_OK) {
-                void *data;
-                u16_t len;
-                netbuf_data(nb, &data, &len);
-                /* check for a GET request */
-                if (!strncmp(data, "GET ", 4)) {
-                    char uri[16];
-                    const int max_uri_len = 16;
-                    char *sp1, *sp2;
-                    /* extract URI */
-                    sp1 = data;
-                    sp1 += 4;
-                    sp2 = memchr(sp1, ' ', max_uri_len);
-                    int len = sp2 - sp1;
-                    memcpy(uri, sp1, len);
-                    uri[len] = '\0';
-                    printf("uri: %s\n", uri);
-                    if (!strncmp(uri, "/on", max_uri_len))
-                        GPIO_OUTPUT(15, false);
-                    else if (!strncmp(uri, "/off", max_uri_len))
-                        GPIO_OUTPUT(15, true);
-                    snprintf(buf, sizeof(buf), webpage,
-                            uri,
-                            xTaskGetTickCount() * portTICK_RATE_MS / 1000,
-                            (int) xPortGetFreeHeapSize());
-                    netconn_write(client, buf, strlen(buf), NETCONN_COPY);
-                }
-            }
-            netbuf_delete(nb);
+
+    /* Tell the server how many characters to insert */
+    return (strlen(pcInsert));
+}
+
+char *gpio_cgi_handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+{
+    int i;
+    for (i = 0; i < iNumParams; i++) {
+        if (strcmp(pcParam[i], "on") == 0) {
+            uint8_t gpio_num = atoi(pcValue[i]);
+            GPIO_AS_OUTPUT(gpio_num);
+            GPIO_OUTPUT_SET(gpio_num, true);
+        } else if (strcmp(pcParam[i], "off") == 0) {
+            uint8_t gpio_num = atoi(pcValue[i]);
+            GPIO_AS_OUTPUT(gpio_num);
+            GPIO_OUTPUT_SET(gpio_num, false);
+        } else if (strcmp(pcParam[i], "toggle") == 0) {
+            uint8_t gpio_num = atoi(pcValue[i]);
+            GPIO_AS_OUTPUT(gpio_num);
+            (GPIO_INPUT_GET(gpio_num) ? GPIO_OUTPUT_SET(gpio_num, false) : GPIO_OUTPUT_SET(gpio_num, true));
         }
-        printf("Closing connection\n");
-        netconn_close(client);
-        netconn_delete(client);
+    }
+    return "/index.ssi";
+}
+
+char *about_cgi_handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+{
+    return "/about.html";
+}
+
+char *websocket_cgi_handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+{
+    return "/websockets.html";
+}
+
+void websocket_task(void *pvParameter)
+{
+    struct tcp_pcb *pcb = (struct tcp_pcb *) pvParameter;
+
+    for (;;) {
+        if (pcb == NULL || pcb->state != ESTABLISHED) {
+            printf("Connection closed, deleting task\n");
+            break;
+        }
+
+        int uptime = xTaskGetTickCount() * portTICK_RATE_MS / 1000;
+        int heap = (int) xPortGetFreeHeapSize();
+        int led = !GPIO_INPUT_GET(LED_PIN);
+
+        /* Generate response in JSON format */
+        char response[64];
+        int len = snprintf(response, sizeof (response),
+                "{\"uptime\" : \"%d\","
+                " \"heap\" : \"%d\","
+                " \"led\" : \"%d\"}", uptime, heap, led);
+        if (len < sizeof (response))
+            websocket_write(pcb, (unsigned char *) response, len, WS_TEXT_MODE);
+
+        vTaskDelay(2000 / portTICK_RATE_MS);
+    }
+
+    vTaskDelete(NULL);
+}
+
+
+/**
+ * This function is called when websocket frame is received.
+ *
+ * Note: this function is executed on TCP thread and should return as soon
+ * as possible.
+ */
+void websocket_cb(struct tcp_pcb *pcb, uint8_t *data, u16_t data_len, uint8_t mode)
+{
+    printf("[websocket_callback]:\n%.*s\n", (int) data_len, (char*) data);
+
+    uint8_t response[2];
+    uint16_t val;
+
+    switch (data[0]) {
+        case 'A': // ADC
+            /* This should be done on a separate thread in 'real' applications */
+            val = system_adc_read();
+            break;
+        case 'D': // Disable LED
+            GPIO_OUTPUT_SET(LED_PIN, true);
+            val = 0xDEAD;
+            break;
+        case 'E': // Enable LED
+            GPIO_OUTPUT_SET(LED_PIN, false);
+            val = 0xBEEF;
+            break;
+        default:
+            printf("Unknown command\n");
+            val = 0;
+            break;
+    }
+
+    response[1] = (uint8_t) val;
+    response[0] = val >> 8;
+
+    websocket_write(pcb, response, 2, WS_BIN_MODE);
+}
+
+/**
+ * This function is called when new websocket is open and
+ * creates a new websocket_task if requested URI equals '/stream'.
+ */
+void websocket_open_cb(struct tcp_pcb *pcb, const char *uri)
+{
+    printf("WS URI: %s\n", uri);
+    if (!strcmp(uri, "/stream")) {
+        printf("request for streaming\n");
+        xTaskCreate(&websocket_task, "websocket_task", 256, (void *) pcb, 2, NULL);
     }
 }
+
+void httpd_task(void *pvParameters)
+{
+    tCGI pCGIs[] = {
+        {"/gpio", (tCGIHandler) gpio_cgi_handler},
+        {"/about", (tCGIHandler) about_cgi_handler},
+        {"/websockets", (tCGIHandler) websocket_cgi_handler},
+    };
+
+    const char *pcConfigSSITags[] = {
+        "uptime", // SSI_UPTIME
+        "heap",   // SSI_FREE_HEAP
+        "led"     // SSI_LED_STATE
+    };
+
+    /* register handlers and start the server */
+    http_set_cgi_handlers(pCGIs, sizeof (pCGIs) / sizeof (pCGIs[0]));
+    http_set_ssi_handler((tSSIHandler) ssi_handler, pcConfigSSITags,
+            sizeof (pcConfigSSITags) / sizeof (pcConfigSSITags[0]));
+    websocket_register_callbacks((tWsOpenHandler) websocket_open_cb,
+            (tWsHandler) websocket_cb);
+    httpd_init();
+
+    for (;;);
+}
+
 /******************************************************************************
  * FunctionName : user_init
  * Description  : entry of user application, init user function here
@@ -189,5 +288,11 @@ void user_init(void)
     init_esp_wifi();
     stop_wifi_ap();
     start_wifi_station(SSID, PASSWORD);
-    xTaskCreate(&httpd_task, "http_server", 1024, NULL, 2, NULL);
+
+    /* turn off LED */
+    GPIO_AS_OUTPUT(LED_PIN);
+    GPIO_OUTPUT_SET(LED_PIN, true);
+
+    /* initialize tasks */
+    xTaskCreate(&httpd_task, "HTTP Daemon", 128, NULL, 2, NULL);
 }

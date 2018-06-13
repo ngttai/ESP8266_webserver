@@ -1,0 +1,29 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "/opt/Espressif/esp-rtos-sdk/include",
+                    "/opt/Espressif/esp-rtos-sdk/extra_include",
+                    "/opt/Espressif/esp-rtos-sdk/driver_lib/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            },
+            "includePath": [
+                "${workspaceFolder}",
+                "/opt/Espressif/esp-rtos-sdk",
+                "/opt/Espressif/esp-rtos-sdk/include",
+                "/opt/Espressif/esp-rtos-sdk/extra_include",
+                "/opt/Espressif/esp-rtos-sdk/driver_lib/include"
+            ],
+            "defines": [],
+            "compilerPath": "/opt/Espressif/crosstool-NG/builds/xtensa-lx106-elf/bin",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64"
+        }
+    ],
+    "version": 4
+}

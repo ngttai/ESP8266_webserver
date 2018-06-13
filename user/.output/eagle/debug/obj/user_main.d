@@ -94,4 +94,14 @@
  /opt/Espressif/esp-rtos-sdk/include/freertos/semphr.h \
  /opt/Espressif/esp-rtos-sdk/include/freertos/queue.h \
  /opt/Espressif/esp-rtos-sdk/driver_lib/include/gpio.h \
- /opt/Espressif/esp-rtos-sdk/include/espressif/esp8266/gpio_register.h
+ /opt/Espressif/esp-rtos-sdk/include/espressif/esp8266/gpio_register.h \
+ /opt/Espressif/esp-rtos-sdk/include/espressif/esp_sta.h ../httpd/httpd.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/lwip/tcp.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/lwip/mem.h \
+ /opt/Espressif/esp-rtos-sdk/include/espressif/esp_libc.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/lwip/ip.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/lwip/netif.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/ipv4/lwip/ip4.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/ipv6/lwip/ip6.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/ipv4/lwip/icmp.h \
+ /opt/Espressif/esp-rtos-sdk/include/lwip/ipv6/lwip/icmp6.h ../httpd/fs.h
