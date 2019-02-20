@@ -25,7 +25,7 @@
 #ifndef __USER_CONFIG_H__
 #define __USER_CONFIG_H__
 
-#define SSID "188 lau 1"
+#define SSID "115188 Lau1"
 #define PASSWORD "levansy188"
 
 #endif

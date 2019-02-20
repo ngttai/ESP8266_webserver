@@ -1,6 +1,8 @@
-This is a simple project template.
+This is a copy of https://lujji.github.io/blog/esp-httpd/.
 
-sample_lib is an example for multi-level folder Makefile, notice the folder structure and each Makefile, you can get the clue.
+ESP8266_RTOS_SDK: v2.0.0
+UART BAUTRATE: 74880
+
 
 
 HOWTO:
